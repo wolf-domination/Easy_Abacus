@@ -1,15 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useEffect, useState } from "react";
 
 import Interpreter from "./Interpreter";
 import InterpreterPhrase from "./InterpreterPhrase";
-import BinaryRows from "../BinaryRows/BinaryRows";
 
-
-
-
-
-
-/* ===== Shared sizing (keeps base & binary aligned) ===== */
+/* ===== Shared sizing (keeps base aligned) ===== */
 const MAX_ROWS = 16;  // visible rows; legal y = 0..MAX_ROWS-1
 const cell = 20;      // px for square cell (width & height)
 const colGap = 4;     // px gap between columns inside a row
@@ -41,11 +35,14 @@ export default function AbacusBox() {
   const [y, setY] = useState(0);
   const [k, setK] = useState(1);
 
+  // Sum from Interpreter 1 (computed by the <Interpreter /> component)
+  const [sum1, setSum1] = useState(0);
+
+  // Load server state once on mount
   const refresh = () => API("/state").then(setState);
-  useEffect(() => { refresh(); }, []);
-  
-  
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    refresh();
+  }, []);
 
   const init = async () =>
     setState(await API("/init", { method: "POST", body: JSON.stringify({ base }) }));
@@ -85,16 +82,9 @@ export default function AbacusBox() {
   /* -------- Binary columns (client-only) -------- */
   // Each column: { id, beads:Set<number> }  (no carrying; row-independent)
   const [binaryCols, setBinaryCols] = useState([{ id: 1, beads: new Set() }]);
-  const [nextId, setNextId] = useState(2);
 
   const setCols = (fn) =>
     setBinaryCols((cols) => fn(cols).map((c) => ({ ...c, beads: new Set(c.beads) })));
-
-  const addCol = () => {
-    setCols((cols) => [...cols, { id: nextId, beads: new Set() }]);
-    setNextId((n) => n + 1);
-  };
-  const resetCols = () => setBinaryCols([{ id: 1, beads: new Set() }]);
 
   // +1/-1 only toggle y=0, ×2/÷2 shift all beads up/down
   const colPlus1 = (id) =>
@@ -136,36 +126,42 @@ export default function AbacusBox() {
 
   const hasBead = (col, yy) => col.beads.has(yy);
 
-  // Count beads per row across all binary columns (for merge)
-  const binCountsByY = useMemo(() => {
-    const m = new Map();
-    binaryCols.forEach((c) => {
-      c.beads.forEach((yy) => m.set(yy, (m.get(yy) || 0) + 1));
-    });
-    return m; // Map<y, count>
+  // Count beads per row across all binary columns (for ratio stats if needed)
+  const totalBinary = useMemo(() => {
+    let s = 0;
+    binaryCols.forEach((c) => (s += c.beads.size));
+    return s;
   }, [binaryCols]);
 
-  const totalBinary = useMemo(
-    () => Array.from(binCountsByY.values()).reduce((a, b) => a + b, 0),
-    [binCountsByY]
+  /* ===== Interpreter 2 (manual symbol inputs counted only in rows selected by the box) =====
+     - A row is "selected by the box" when baseRows[row].count > 0 (non-empty).
+     - In those rows only, EVERY CHARACTER typed counts as 1 point.
+  ============================================================================================ */
+
+  // One input per visible row (top -> down to match the grid you see)
+  const [i2Rows, setI2Rows] = useState(() => Array(MAX_ROWS).fill(""));
+
+  const updateI2Row = (rowIndex, val) => {
+    setI2Rows((prev) => {
+      const next = prev.slice();
+      next[rowIndex] = val || "";
+      return next;
+    });
+  };
+
+  // mask of rows selected by the box (visual order)
+  const selectedMask = useMemo(
+    () => baseRows.map(({ count }) => count > 0),
+    [baseRows]
   );
 
-  // Merge: add k at the SAME y for each row with binary beads
-  const mergeToBase = async () => {
-    if (binCountsByY.size === 0) return;
-    const rows = Array.from(binCountsByY.keys()).sort((a, b) => a - b);
-    let latest = state;
-    for (const yy of rows) {
-      const kk = binCountsByY.get(yy) || 0;
-      // eslint-disable-next-line no-await-in-loop
-      latest = await API("/add", {
-        method: "POST",
-        body: JSON.stringify({ y: yy, k: kk }),
-      });
-    }
-    setState(latest);
-    resetCols();
-  };
+  // Sum of Interpreter 2 = total number of characters typed ONLY in selected rows
+  const sum2 = useMemo(() => {
+    return i2Rows.reduce((acc, s, idx) => {
+      if (!selectedMask[idx]) return acc;      // ignore unselected rows
+      return acc + (s ? s.length : 0);         // each character = 1 point
+    }, 0);
+  }, [i2Rows, selectedMask]);
 
   return (
     <div style={{ display: "grid", gap: "1rem", padding: "1rem" }}>
@@ -252,7 +248,7 @@ export default function AbacusBox() {
                       height: `${cell}px`,
                       border: "1px solid #555",
                       background: filled ? "black" : "transparent",
-                      boxSizing: "border-box", // ✅ keep rows perfect, no clipping
+                      boxSizing: "border-box",
                     }}
                   />
                 );
@@ -260,7 +256,7 @@ export default function AbacusBox() {
             </div>
           ))}
 
-          {/* Legend (editable): shift left by one cell so 0’s hangs left of the grid */}
+          {/* Legend (editable): 0’s hangs left of the grid */}
           <div
             aria-label="legend"
             style={{
@@ -277,7 +273,7 @@ export default function AbacusBox() {
                 key={`legend-${i}`}
                 value={label}
                 onChange={(e) => {
-                  const val = (e.target.value || "").slice(0, 1); // ✅ single char
+                  const val = (e.target.value || "").slice(0, 1); // single char
                   setLegendLabels((prev) => {
                     const copy = prev.slice();
                     copy[i] = val;
@@ -305,7 +301,7 @@ export default function AbacusBox() {
         {/* WALL */}
         <div style={wallStyle} />
 
-        {/* Binary columns — aligned to same row spacing; controls at bottom */}
+        {/* Binary columns — aligned to same row spacing; controls at bottom of each column */}
         <div
           aria-label="binary"
           style={{
@@ -334,93 +330,105 @@ export default function AbacusBox() {
                           height: `${cell}px`,
                           border: "1px solid #555",
                           background: filled ? "black" : "transparent",
-                          boxSizing: "border-box", // ✅ same as base
+                          boxSizing: "border-box",
                         }}
                       />
                     );
                   })}
               </div>
 
-{/* Controls at bottom (narrow, one per row to avoid overlap) */}
-<div
-  style={{
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    rowGap: "4px",
-    // reserve a bit of space so nothing clips at the bottom
-    paddingBottom: "2px",
-  }}
->
-  {[
-    { label: "+1", onClick: () => colPlus1(col.id) },
-    { label: "-1", onClick: () => colMinus1(col.id) },
-    { label: "×2", onClick: () => colMul2(col.id, 1) },
-    { label: "÷2", onClick: () => colDiv2(col.id, 1) },
-  ].map((b, i) => (
-    <button
-      key={i}
-      onClick={b.onClick}
-      style={{
-        width: "100%",        // exactly the column width (== cell)
-        height: "18px",       // short so it fits nicely
-        padding: "0",         // no extra width
-        fontSize: "10px",     // small text to stay within cell
-        lineHeight: "18px",
-        boxSizing: "border-box",
-      }}
-      title={b.label}
-    >
-      {b.label}
-    </button>
-  ))}
-</div>
-
+              {/* Controls at bottom (narrow, one per row to avoid overlap) */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr",
+                  rowGap: "4px",
+                  paddingBottom: "2px",
+                }}
+              >
+                {[
+                  { label: "+1", onClick: () => colPlus1(col.id) },
+                  { label: "-1", onClick: () => colMinus1(col.id) },
+                  { label: "×2", onClick: () => colMul2(col.id, 1) },
+                  { label: "÷2", onClick: () => colDiv2(col.id, 1) },
+                ].map((b, i) => (
+                  <button
+                    key={i}
+                    onClick={b.onClick}
+                    style={{
+                      width: "100%",
+                      height: "18px",
+                      padding: "0",
+                      fontSize: "10px",
+                      lineHeight: "18px",
+                      boxSizing: "border-box",
+                    }}
+                    title={b.label}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ))}
         </div>
       </div>
 
-            {/* Binary toolbar (global) */}
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-        <button onClick={addCol}>+ Add Binary Column</button>
-        <button onClick={resetCols}>Reset Binary</button>
-        <button onClick={mergeToBase} disabled={binCountsByY.size === 0}>
-          🔗 Merge
-        </button>
+      {/* Interpreter 1 (computed from the base grid) */}
+      <Interpreter
+        width={state.width}
+        rows={baseRows}
+        legend={legendLabels}
+        direction="rtl"
+        topToBottom={true}
+        joiner=""
+        onText={setWord}
+        onSum={setSum1}
+        title="Interpreter"
+      />
+
+      {/* Interpreter 2 (manual inputs; only rows selected by the box are counted) */}
+      <div style={{ marginTop: "1rem" }}>
+        <strong>Interpreter 2:</strong>{" "}
+        <span style={{ opacity: 0.7 }}>(sum = {sum2})</span>
+        <div style={{ display: "grid", rowGap: "6px", marginTop: "6px", maxWidth: 520 }}>
+          {baseRows.map((_, idx) => {
+            const selected = selectedMask[idx]; // true if that visual row has count > 0
+            return (
+              <div key={`i2-${idx}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 16, textAlign: "right" }}>•</span>
+                <input
+                  value={i2Rows[idx] || ""}
+                  onChange={(e) => updateI2Row(idx, e.target.value)}
+                  placeholder={selected ? "type to score…" : "not counted"}
+                  style={{
+                    flex: 1,
+                    height: 26,
+                    border: "1px solid #aaa",
+                    borderRadius: 4,
+                    padding: "2px 6px",
+                    background: selected ? "white" : "#f4f4f4",
+                    opacity: selected ? 1 : 0.6,
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-          {/* Phrase Interpreter (takes the text from Interpreter) */}
-          <Interpreter
-  width={state.width}
-  rows={baseRows}
-  legend={legendLabels}
-  direction="rtl"
-  topToBottom={true}
-  joiner=""
-  onText={setWord}
-/>
+      {/* Phrase Interpreter (takes the text from Interpreter) */}
+      <InterpreterPhrase text={word} legend={legendLabels} />
 
-<InterpreterPhrase
-  text={word}
-  legend={legendLabels}
-/>
-
-{/* Binary mirror of the box rows (1/0 per cell) */}
-<BinaryRows
-  rows={baseRows}
-  width={state.width}
-  cell={20}      // or use your `cell` constant
-  colGap={4}     // or `colGap`
-  rowGap={6}     // or `rowGap`
-  topToBottom={true}
-/>
-
-
-    {/* this is the ONLY closing tag for the outer wrapper */}
-  </div>
-);
+      {/* Totals + Ratio */}
+      <div style={{ marginTop: "1rem", padding: "0.5rem 0" }}>
+        <div><b>Sum (Interpreter):</b> {sum1}</div>
+        <div><b>Sum (Interpreter 2):</b> {sum2}</div>
+        <div>
+          <b>Ratio (Interp2 / Interp1):</b>{" "}
+          {sum1 === 0 ? "N/A" : (sum2 / sum1).toFixed(4)}
+        </div>
+      </div>
+    </div>
+  );
 }
-
-
-
-

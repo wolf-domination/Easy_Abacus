@@ -86,7 +86,7 @@ export default function AbacusBox() {
   const setCols = (fn) =>
     setBinaryCols((cols) => fn(cols).map((c) => ({ ...c, beads: new Set(c.beads) })));
 
-  // +1/-1 only toggle y=0, ×2/÷2 shift all beads up/down
+  // Column-local controls:
   const colPlus1 = (id) =>
     setCols((cols) =>
       cols.map((c) => {
@@ -126,19 +126,55 @@ export default function AbacusBox() {
 
   const hasBead = (col, yy) => col.beads.has(yy);
 
-  // Count beads per row across all binary columns (for ratio stats if needed)
+  // ===== Global binary actions (these are what the toolbar buttons call) =====
+  // Count beads per row across all binary columns (for Merge)
+  const binCountsByY = useMemo(() => {
+    const m = new Map(); // Map<y, count>
+    binaryCols.forEach((c) => {
+      c.beads.forEach((yy) => m.set(yy, (m.get(yy) || 0) + 1));
+    });
+    return m;
+  }, [binaryCols]);
+
+  // Add a new, empty binary column
+  const addCol = () => {
+    setCols((cols) => {
+      const nextId = (cols.at(-1)?.id || 0) + 1;
+      return [...cols, { id: nextId, beads: new Set() }];
+    });
+  };
+
+  // Reset all binary columns to a single empty column
+  const resetCols = () => setBinaryCols([{ id: 1, beads: new Set() }]);
+
+  // For each row y, add k = number of binary beads at that y into the base grid
+  const mergeToBase = async () => {
+    if (binCountsByY.size === 0) return;
+    const rows = Array.from(binCountsByY.keys()).sort((a, b) => a - b);
+    let latest = state;
+    for (const yy of rows) {
+      const kk = binCountsByY.get(yy) || 0;
+      // eslint-disable-next-line no-await-in-loop
+      latest = await API("/add", {
+        method: "POST",
+        body: JSON.stringify({ y: yy, k: kk }),
+      });
+    }
+    setState(latest);
+    resetCols();
+  };
+
+  // Tiny stat
   const totalBinary = useMemo(() => {
     let s = 0;
     binaryCols.forEach((c) => (s += c.beads.size));
     return s;
   }, [binaryCols]);
 
-  /* ===== Interpreter 2 (manual symbol inputs counted only in rows selected by the box) =====
+  /* ===== Interpreter 2 (manual inputs counted only in rows selected by the box) =====
      - A row is "selected by the box" when baseRows[row].count > 0 (non-empty).
      - In those rows only, EVERY CHARACTER typed counts as 1 point.
-  ============================================================================================ */
-
-  // One input per visible row (top -> down to match the grid you see)
+  ==================================================================================== */
   const [i2Rows, setI2Rows] = useState(() => Array(MAX_ROWS).fill(""));
 
   const updateI2Row = (rowIndex, val) => {
@@ -372,6 +408,15 @@ export default function AbacusBox() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* ==== Global Binary Toolbar (this restores the buttons you were missing) ==== */}
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "0.5rem" }}>
+        <button onClick={addCol}>+ Add Binary Column</button>
+        <button onClick={resetCols}>Reset Binary</button>
+        <button onClick={mergeToBase} disabled={binCountsByY.size === 0}>
+          🔗 Merge
+        </button>
       </div>
 
       {/* Interpreter 1 (computed from the base grid) */}

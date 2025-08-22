@@ -8,7 +8,7 @@ import * as sessionActions from "./redux/session";
 import "./index.css";
 
 import Layout from "./Layout";
-//import Layout from "./routes/Layout"; // adjust if Layout lives elsewhere
+import ProjectLayout from "./ProjectLayout";   // <-- new
 import AbacusBox from "./components/AbacusBox/AbacusBox.jsx";
 import Notes from "./pages/Notes.jsx";
 import LoginFormPage from "./components/LoginFormPage";
@@ -21,16 +21,31 @@ if (import.meta.env.MODE !== "production") {
   window.sessionActions = sessionActions;
 }
 
-// define routes here
 const router = createBrowserRouter([
   {
     element: <Layout />,
     children: [
-      { path: "/", element: <Navigate to="/abacus" replace /> },
-      { path: "/abacus", element: <AbacusBox /> },
-      { path: "/notes", element: <Notes /> },
+      // Project root with sub-tabs
+      {
+        path: "/project",
+        element: <ProjectLayout />,
+        children: [
+          { index: true, element: <Navigate to="abacus" replace /> },
+          { path: "abacus", element: <AbacusBox /> },
+          { path: "notes", element: <Notes /> },
+        ],
+      },
+
+      // Back-compat redirects
+      { path: "/abacus", element: <Navigate to="/project/abacus" replace /> },
+      { path: "/notes", element: <Navigate to="/project/notes" replace /> },
+
+      // Auth
       { path: "/login", element: <LoginFormPage /> },
       { path: "/signup", element: <SignupFormPage /> },
+
+      // Root → Project
+      { path: "/", element: <Navigate to="/project" replace /> },
     ],
   },
 ]);

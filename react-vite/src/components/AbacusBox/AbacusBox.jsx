@@ -1,3 +1,25 @@
+import Cookies from "js-cookie";
+
+// Generic API helper
+const api = async (path, opts = {}) => {
+  const r = await fetch(`/api/abacus${path}`, {
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "XSRF-Token": Cookies.get("XSRF-TOKEN") || "",
+      ...(opts.headers || {}),
+    },
+    ...opts, // <-- keep whatever caller passes (method, body, etc.)
+  });
+
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    console.error(`[api ${path}] ${r.status}`, text);
+    throw new Error(`api ${path} failed (${r.status})`);
+  }
+  return r.json();
+};
+
 import { useMemo, useEffect, useState } from "react";
 
 import Interpreter from "./Interpreter";
@@ -19,13 +41,7 @@ const wallStyle = {
   opacity: 0.6,
 };
 
-/* Backend API helper */
-const API = (path, opts = {}) =>
-  fetch(`/api/abacus${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  }).then((r) => r.json());
-
+// Removed duplicate Backend API helper
 export default function AbacusBox() {
   /* -------- Base(n−1) (server-backed) -------- */
   const [word, setWord] = useState("");
@@ -39,23 +55,23 @@ export default function AbacusBox() {
   const [sum1, setSum1] = useState(0);
 
   // Load server state once on mount
-  const refresh = () => API("/state").then(setState);
+  const refresh = () => api("/state").then(setState);
   useEffect(() => {
     refresh();
   }, []);
 
   const init = async () =>
-    setState(await API("/init", { method: "POST", body: JSON.stringify({ base }) }));
+    setState(await api("/init", { method: "POST", body: JSON.stringify({ base }) }));
   const add = async () =>
-    setState(await API("/add", { method: "POST", body: JSON.stringify({ y, k }) }));
+    setState(await api("/add", { method: "POST", body: JSON.stringify({ y, k }) }));
   const sub = async () =>
-    setState(await API("/sub", { method: "POST", body: JSON.stringify({ y, k }) }));
+    setState(await api("/sub", { method: "POST", body: JSON.stringify({ y, k }) }));
   const mul2 = async (steps = 1) =>
-    setState(await API("/mul2", { method: "POST", body: JSON.stringify({ steps }) }));
+    setState(await api("/mul2", { method: "POST", body: JSON.stringify({ steps }) }));
   const div2 = async (steps = 1) =>
-    setState(await API("/div2", { method: "POST", body: JSON.stringify({ steps }) }));
+    setState(await api("/div2", { method: "POST", body: JSON.stringify({ steps }) }));
   const convert = async () =>
-    setState(await API("/convert", { method: "POST", body: JSON.stringify({ base }) }));
+    setState(await api("/convert", { method: "POST", body: JSON.stringify({ base }) }));
 
   /* Build exactly MAX_ROWS rows for the base grid (top → down). */
   const baseRows = useMemo(() => {
@@ -155,7 +171,7 @@ export default function AbacusBox() {
     for (const yy of rows) {
       const kk = binCountsByY.get(yy) || 0;
       // eslint-disable-next-line no-await-in-loop
-      latest = await API("/add", {
+      latest = await api("/add", {
         method: "POST",
         body: JSON.stringify({ y: yy, k: kk }),
       });

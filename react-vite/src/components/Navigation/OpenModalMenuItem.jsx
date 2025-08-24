@@ -1,22 +1,24 @@
-import { useModal } from '../../context/Modal';
+// OpenModalMenuItem.jsx
+import PropTypes from "prop-types";
+import { useModal } from "../../context/Modal";
 
-function OpenModalMenuItem({
-  modalComponent, // component to render inside the modal
-  itemText, // text of the button that opens the modal
-  onItemClick, // optional: callback function that will be called once the button that opens the modal is clicked
-  onModalClose // optional: callback function that will be called once the modal is closed
-}) {
-  const { setModalContent, setOnModalClose } = useModal();
+export default function OpenModalMenuItem({ itemText, onItemClick, modalComponent }) {
+  const { setModalContent } = useModal();   // removed setOnModalClose
 
-  const onClick = () => {
-    if (onModalClose) setOnModalClose(onModalClose);
-    setModalContent(modalComponent);
+  const handleClick = () => {
     if (typeof onItemClick === "function") onItemClick();
+    setModalContent(modalComponent);
   };
 
   return (
-    <li onClick={onClick}>{itemText}</li>
+    <button type="button" onClick={handleClick}>
+      {itemText}
+    </button>
   );
 }
 
-export default OpenModalMenuItem;
+OpenModalMenuItem.propTypes = {
+  itemText: PropTypes.string.isRequired,
+  onItemClick: PropTypes.func,
+  modalComponent: PropTypes.node.isRequired,
+};

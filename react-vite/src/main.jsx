@@ -8,11 +8,14 @@ import * as sessionActions from "./redux/session";
 import "./index.css";
 
 import Layout from "./Layout";
-import ProjectLayout from "./ProjectLayout";   // <-- new
 import AbacusBox from "./components/AbacusBox/AbacusBox.jsx";
-import Notes from "./pages/Notes.jsx";
 import LoginFormPage from "./components/LoginFormPage";
 import SignupFormPage from "./components/SignupFormPage";
+
+// Spots pages
+import SpotsIndex from "./pages/SpotsIndex.jsx";
+import SpotLayout, { spotLoader } from "./pages/SpotLayout.jsx";
+import SpotNotes from "./pages/SpotNotes.jsx";
 
 const store = configureStore();
 
@@ -25,27 +28,23 @@ const router = createBrowserRouter([
   {
     element: <Layout />,
     children: [
-      // Project root with sub-tabs
+      { path: "/", element: <Navigate to="/spots" replace /> },
+
+      { path: "/spots", element: <SpotsIndex /> },
+
       {
-        path: "/project",
-        element: <ProjectLayout />,
+        path: "/spots/:spotId",
+        element: <SpotLayout />,
+        loader: spotLoader,
         children: [
           { index: true, element: <Navigate to="abacus" replace /> },
           { path: "abacus", element: <AbacusBox /> },
-          { path: "notes", element: <Notes /> },
+          { path: "notes", element: <SpotNotes /> },
         ],
       },
 
-      // Back-compat redirects
-      { path: "/abacus", element: <Navigate to="/project/abacus" replace /> },
-      { path: "/notes", element: <Navigate to="/project/notes" replace /> },
-
-      // Auth
       { path: "/login", element: <LoginFormPage /> },
       { path: "/signup", element: <SignupFormPage /> },
-
-      // Root → Project
-      { path: "/", element: <Navigate to="/project" replace /> },
     ],
   },
 ]);

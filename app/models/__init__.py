@@ -1,3 +1,8 @@
-from .db import db
+# app/models/__init__.py
+from .db import db, environment, SCHEMA
+
+# Import models so SQLAlchemy registers tables
 from .user import User
-from .db import environment, SCHEMA
+from .spot import Spot
+
+__all__ = ["db", "environment", "SCHEMA", "User", "Spot"]

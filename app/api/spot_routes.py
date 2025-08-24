@@ -1,23 +1,24 @@
 from flask import Blueprint, request
 from app.models import db, Spot
 
-# mount all routes under /api/spots
 spot_routes = Blueprint("spots", __name__, url_prefix="/api/spots")
 
-@spot_routes.get("/")
+@spot_routes.get("")
 def index():
     spots = Spot.query.order_by(Spot.updated_at.desc()).all()
     return {"spots": [s.to_dict() for s in spots]}
 
-@spot_routes.post("/")
+@spot_routes.post("")
 def create():
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     description = (data.get("description") or "").strip()
+    thumbnail_url = (data.get("thumbnail_url") or "").strip() or None
+
     if not name:
         return {"errors": {"name": "Name is required"}}, 400
 
-    s = Spot(name=name, description=description)
+    s = Spot(name=name, description=description, thumbnail_url=thumbnail_url)
     db.session.add(s)
     db.session.commit()
     return s.to_dict(), 201

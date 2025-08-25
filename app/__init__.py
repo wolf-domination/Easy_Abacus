@@ -1,14 +1,21 @@
 import os
-from flask import Flask
+from flask import Flask, send_from_directory
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_login import LoginManager
+
 from .models import db, User
 
 app = Flask(__name__)
+
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///dev.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+UPLOAD_FOLDER = os.path.abspath(os.path.join(BASE_DIR, "..", "uploads"))
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 db.init_app(app)
 Migrate(app, db)
@@ -29,13 +36,15 @@ CORS(
 
 from .api.abacus_routes import abacus_routes
 from .api.spot_routes import spot_routes
-from .api.spot_note_routes import spot_note_routes
 
 app.register_blueprint(abacus_routes)
 app.register_blueprint(spot_routes)
-app.register_blueprint(spot_note_routes)
 
 @app.after_request
 def set_csrf_cookie(response):
     response.set_cookie("XSRF-TOKEN", "dev-token", httponly=False, samesite="Lax", secure=False, path="/")
     return response
+
+@app.get("/uploads/<path:filename>")
+def uploads(filename):
+    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)

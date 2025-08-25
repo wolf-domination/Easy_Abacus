@@ -1,13 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 const api = async (path, opts = {}) => {
-  const r = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+  const r = await fetch(`/api/spots${path}`, {
     credentials: "same-origin",
+    headers:
+      opts.body instanceof FormData
+        ? { "XSRF-Token": (document.cookie.match(/XSRF-TOKEN=([^;]+)/) || [])[1] || "dev-token" }
+        : {
+            "Content-Type": "application/json",
+            "XSRF-Token": (document.cookie.match(/XSRF-TOKEN=([^;]+)/) || [])[1] || "dev-token",
+          },
     ...opts,
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) throw new Error(`api ${path} failed (${r.status})`);
   return r.json();
 };
 
@@ -17,107 +23,72 @@ export default function SpotNotes() {
 
   const [spot, setSpot] = useState(null);
   const [notes, setNotes] = useState([]);
-  const [newBody, setNewBody] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const load = async () => {
-    setLoading(true);
-    const [s, n] = await Promise.all([
-      api(`/api/spots/${spotId}`),
-      api(`/api/spots/${spotId}/notes`),
-    ]);
-    setSpot(s);
-    setNotes(n.notes || []);
-    setLoading(false);
-  };
+  const [body, setBody] = useState("");
 
   useEffect(() => {
-    load().catch(() => setLoading(false));
+    if (!spotId) return;
+    api(`/${spotId}`).then(setSpot).catch(() => setSpot(null));
+    api(`/${spotId}/notes`).then((d) => setNotes(d.notes || [])).catch(() => setNotes([]));
   }, [spotId]);
 
-  const canSave = useMemo(() => newBody.trim().length > 0, [newBody]);
-
-  const createNote = async (e) => {
+  const addNote = async (e) => {
     e.preventDefault();
-    if (!canSave) return;
-    const created = await api(`/api/spots/${spotId}/notes`, {
+    if (!body.trim()) return;
+    const n = await api(`/${spotId}/notes`, {
       method: "POST",
-      body: JSON.stringify({ body: newBody.trim() }),
+      body: JSON.stringify({ body }),
     });
-    setNotes((ns) => [created, ...ns]);
-    setNewBody("");
+    setNotes((prev) => [...prev, n]);
+    setBody("");
   };
 
-  const removeNote = async (noteId) => {
-    await api(`/api/notes/${noteId}`, { method: "DELETE" });
-    setNotes((ns) => ns.filter((n) => n.id !== noteId));
+  const delNote = async (noteId) => {
+    await api(`/${spotId}/notes/${noteId}`, { method: "DELETE" });
+    setNotes((prev) => prev.filter((n) => n.id !== noteId));
   };
 
-  if (loading) return <div style={{ padding: 16 }}>Loading…</div>;
-  if (!spot) return <div style={{ padding: 16 }}>Not found.</div>;
+  if (!spotId) return <div>Not found.</div>;
+  if (!spot) return <div>Loading…</div>;
 
   return (
-    <div style={{ padding: "1rem", maxWidth: 900, margin: "0 auto" }}>
-      <div style={{ marginBottom: 8 }}>
-        <Link to="/spots">← Back to Projects</Link>
+    <div style={{ maxWidth: 900, margin: "0 auto", padding: "1rem" }}>
+      <Link to="/spots">← Back to Projects</Link>
+
+      <h2 style={{ marginTop: 12 }}>{spot.name}</h2>
+      <div style={{ color: "#666", marginBottom: 8 }}>
+        Spot ID: {spot.id} • Description: {spot.description || "No description"}
       </div>
 
-      <h2 style={{ margin: 0 }}>{spot.name}</h2>
-      <div style={{ display: "flex", gap: 24, alignItems: "flex-start", marginTop: 12 }}>
-        <div
-          style={{
-            width: 220,
-            height: 150,
-            border: "1px dashed #bbb",
-            borderRadius: 6,
-            display: "grid",
-            placeItems: "center",
-            overflow: "hidden",
-            background: "#fafafa",
-          }}
-        >
-          {spot.thumbnail_url ? (
-            <img
-              src={spot.thumbnail_url}
-              alt={`${spot.name} thumbnail`}
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
-          ) : (
-            <span style={{ opacity: 0.6 }}>No image</span>
-          )}
-        </div>
-
-        <div style={{ flex: 1 }}>
-          <div><b>Spot ID:</b> {spot.id}</div>
-          <div><b>Description:</b> {spot.description || "No description"}</div>
-        </div>
-      </div>
-
-      <h3 style={{ marginTop: 24 }}>Notes</h3>
-
-      <form onSubmit={createNote} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      <form onSubmit={addNote} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <input
-          value={newBody}
-          onChange={(e) => setNewBody(e.target.value)}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
           placeholder="Write a note…"
-          style={{ flex: 1, height: 34, padding: "6px 8px", border: "1px solid #bbb", borderRadius: 4 }}
+          style={{ flex: 1, height: 32, padding: "4px 8px" }}
         />
-        <button type="submit" disabled={!canSave}>Add</button>
+        <button type="submit">Add</button>
       </form>
 
       {notes.length === 0 ? (
         <div style={{ opacity: 0.7 }}>No notes yet.</div>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+        <ul style={{ display: "grid", gap: 10, padding: 0, listStyle: "none" }}>
           {notes.map((n) => (
             <li
               key={n.id}
-              style={{ padding: "8px 10px", border: "1px solid #ddd", borderRadius: 6, background: "white" }}
+              style={{
+                border: "1px solid #ddd",
+                borderRadius: 6,
+                padding: "8px 10px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                <div style={{ whiteSpace: "pre-wrap" }}>{n.body}</div>
-                <button onClick={() => removeNote(n.id)} aria-label="Delete note">✕</button>
-              </div>
+              <span>{n.body}</span>
+              <button onClick={() => delNote(n.id)} title="Delete" aria-label="Delete">
+                ×
+              </button>
             </li>
           ))}
         </ul>

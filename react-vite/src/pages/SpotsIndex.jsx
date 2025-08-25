@@ -5,65 +5,58 @@ import "./SpotsIndex.css";
 const api = async (path, opts = {}) => {
   const r = await fetch(`/api/spots${path}`, {
     credentials: "same-origin",
+    headers:
+      opts.body instanceof FormData
+        ? { "XSRF-Token": (document.cookie.match(/XSRF-TOKEN=([^;]+)/) || [])[1] || "dev-token" }
+        : {
+            "Content-Type": "application/json",
+            "XSRF-Token": (document.cookie.match(/XSRF-TOKEN=([^;]+)/) || [])[1] || "dev-token",
+          },
     ...opts,
   });
-  if (!r.ok) {
-    const t = await r.text().catch(() => "");
-    throw new Error(`spots api ${path} failed (${r.status}) ${t}`);
-  }
-  return r.headers.get("content-type")?.includes("application/json")
-    ? r.json()
-    : r.text();
+  if (!r.ok) throw new Error(`api ${path} failed (${r.status})`);
+  return r.json();
 };
 
 export default function SpotsIndex() {
   const [spots, setSpots] = useState([]);
   const [name, setName] = useState("");
 
-  const load = () => api("").then((d) => setSpots(d.spots || []));
+  const refresh = async () => {
+    const d = await api("");
+    setSpots(d.spots || []);
+  };
+
   useEffect(() => {
-    load();
+    refresh();
   }, []);
+
+  const sorted = useMemo(
+    () => [...spots].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at)),
+    [spots]
+  );
 
   const create = async (e) => {
     e.preventDefault();
     const n = name.trim();
     if (!n) return;
-    await api("", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: n }),
-    });
+    const s = await api("", { method: "POST", body: JSON.stringify({ name: n }) });
+    setSpots((prev) => [s, ...prev]);
     setName("");
-    load();
   };
 
-  const del = async (id) => {
-    if (!confirm("Delete this project?")) return;
+  const destroy = async (id) => {
     await api(`/${id}`, { method: "DELETE" });
-    load();
+    setSpots((prev) => prev.filter((s) => s.id !== id));
   };
 
-  const uploadThumb = async (id, file) => {
+  const uploadImage = async (id, file) => {
+    if (!file) return;
     const fd = new FormData();
     fd.append("image", file);
-    await fetch(`/api/spots/${id}/thumbnail`, {
-      method: "POST",
-      body: fd,
-      credentials: "same-origin",
-    }).then((r) => {
-      if (!r.ok) throw new Error("upload failed");
-    });
-    load();
+    const s = await api(`/${id}/image`, { method: "POST", body: fd });
+    setSpots((prev) => prev.map((p) => (p.id === id ? s : p)));
   };
-
-  const sorted = useMemo(
-    () =>
-      [...spots].sort(
-        (a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0)
-      ),
-    [spots]
-  );
 
   return (
     <div className="spots-wrap">
@@ -86,45 +79,35 @@ export default function SpotsIndex() {
               {s.thumbnail_url ? (
                 <img src={s.thumbnail_url} alt={s.name} />
               ) : (
-                <label className="uploader">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) uploadThumb(s.id, f);
-                      e.currentTarget.value = "";
-                    }}
-                  />
-                  Add Image
-                </label>
+                <div className="thumb-empty">No image</div>
               )}
             </div>
 
-            <div className="card-body">
+            <div className="meta">
               <div className="title-row">
                 <h3 className="title">{s.name}</h3>
-                <button
-                  className="delete"
-                  aria-label="Delete project"
-                  onClick={() => del(s.id)}
-                >
+                <button className="x" onClick={() => destroy(s.id)} title="Delete">
                   ×
                 </button>
               </div>
 
-              <p className="desc">{s.description || "No description"}</p>
+              <div className="desc">{s.description || "No description"}</div>
 
               <div className="actions">
+                <label className="btn">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => uploadImage(s.id, e.target.files?.[0])}
+                    style={{ display: "none" }}
+                  />
+                  Add image
+                </label>
                 <Link to={`/spots/${s.id}/notes`}>Open</Link>
                 <Link to={`/spots/${s.id}/abacus`}>Abacus</Link>
               </div>
 
-              <div className="meta">
-                {s.updated_at
-                  ? `Updated ${new Date(s.updated_at).toLocaleString()}`
-                  : "Updated Unknown"}
-              </div>
+              <div className="time">Updated {new Date(s.updated_at).toLocaleString()}</div>
             </div>
           </article>
         ))}

@@ -1,29 +1,20 @@
-import AbacusBox from '../components/AbacusBox/AbacusBox.jsx';
-import { createBrowserRouter } from 'react-router-dom';
-import LoginFormPage from '../components/LoginFormPage';
-import SignupFormPage from '../components/SignupFormPage';
-import Layout from './Layout';
+import { createBrowserRouter } from "react-router-dom";
+import Layout from "../Layout";
+import SpotsIndex from "../pages/SpotsIndex";
+import SpotNotes from "../pages/SpotNotes";
+import AbacusBox from "../components/AbacusBox/AbacusBox";
 
-export const router = createBrowserRouter([
+const router = createBrowserRouter([
   {
+    path: "/",
     element: <Layout />,
     children: [
-      {
-        path: "/",
-        element: <h1>Welcome!</h1>,
-      },
-      {
-        path: "login",
-        element: <LoginFormPage />,
-      },
-      {
-        path: "signup",
-        element: <SignupFormPage />,
-      },
-      {
-        path: "abacus",
-        element: <AbacusBox />,
-      },
+      { index: true, element: <SpotsIndex /> },
+      { path: "spots", element: <SpotsIndex /> },
+      { path: "spots/:id/notes", element: <SpotNotes /> },
+      { path: "spots/:id/abacus", element: <AbacusBox /> },
     ],
   },
 ]);
+
+export default router;

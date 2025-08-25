@@ -1,117 +1,127 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useOutletContext, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 
-const LS_KEY = (id) => `easy_abacus_notes_spot_${id}`;
-const now = () => new Date().toISOString();
-const uid = () => Math.random().toString(36).slice(2, 10);
-const titleFrom = (b) => (b || "").split(/\r?\n/, 1)[0].trim() || "Untitled";
-const previewFrom = (b) => (b || "").split(/\r?\n/).slice(1).join(" ").trim().slice(0, 80);
+const api = async (path, opts = {}) => {
+  const r = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    ...opts,
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+};
 
 export default function SpotNotes() {
-  const { spotId } = useParams();
-  const { spot } = useOutletContext();
-  const storageKey = LS_KEY(spotId);
+  const { id } = useParams();
+  const spotId = Number(id);
 
+  const [spot, setSpot] = useState(null);
   const [notes, setNotes] = useState([]);
-  const [activeId, setActiveId] = useState(null);
-  const [text, setText] = useState("");
+  const [newBody, setNewBody] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const raw = localStorage.getItem(storageKey);
-    const list = raw ? JSON.parse(raw) : [];
-    setNotes(Array.isArray(list) ? list : []);
-    if (list?.length) { setActiveId(list[0].id); setText(list[0].body || ""); }
-    else { setActiveId(null); setText(""); }
-  }, [storageKey]);
-
-  useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(notes)); }, [notes, storageKey]);
-
-  const active = useMemo(() => notes.find(n => n.id === activeId) || null, [notes, activeId]);
-  useEffect(() => { setText(active?.body ?? ""); }, [active?.id]);
-
-  const saveTimer = useRef(null);
-  useEffect(() => {
-    if (!active) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      setNotes(prev => prev.map(n => n.id === activeId ? {
-        ...n, body: text, title: titleFrom(text), preview: previewFrom(text), updatedAt: now()
-      } : n));
-    }, 250);
-    return () => clearTimeout(saveTimer.current);
-  }, [text, activeId, active]);
-
-  const createNote = () => {
-    const id = uid();
-    const base = { id, title: "Untitled", preview: "", body: "", createdAt: now(), updatedAt: now() };
-    setNotes(prev => [base, ...prev]);
-    setActiveId(id);
-    setText("");
+  const load = async () => {
+    setLoading(true);
+    const [s, n] = await Promise.all([
+      api(`/api/spots/${spotId}`),
+      api(`/api/spots/${spotId}/notes`),
+    ]);
+    setSpot(s);
+    setNotes(n.notes || []);
+    setLoading(false);
   };
 
-  const deleteNote = (id) => {
-    setNotes(prev => prev.filter(n => n.id !== id));
-    if (id === activeId) {
-      const remaining = notes.filter(n => n.id !== id);
-      if (remaining.length) { setActiveId(remaining[0].id); setText(remaining[0].body || ""); }
-      else { setActiveId(null); setText(""); }
-    }
+  useEffect(() => {
+    load().catch(() => setLoading(false));
+  }, [spotId]);
+
+  const canSave = useMemo(() => newBody.trim().length > 0, [newBody]);
+
+  const createNote = async (e) => {
+    e.preventDefault();
+    if (!canSave) return;
+    const created = await api(`/api/spots/${spotId}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ body: newBody.trim() }),
+    });
+    setNotes((ns) => [created, ...ns]);
+    setNewBody("");
   };
+
+  const removeNote = async (noteId) => {
+    await api(`/api/notes/${noteId}`, { method: "DELETE" });
+    setNotes((ns) => ns.filter((n) => n.id !== noteId));
+  };
+
+  if (loading) return <div style={{ padding: 16 }}>Loading…</div>;
+  if (!spot) return <div style={{ padding: 16 }}>Not found.</div>;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", height: "calc(100vh - 140px)" }}>
-      <aside style={{ borderRight: "1px solid #eee", display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: 10, borderBottom: "1px solid #eee", display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={createNote}>＋ New</button>
-          <div style={{ marginLeft: "auto", fontSize: 12, color: "#888" }}>
-            {notes.length} note{notes.length !== 1 ? "s" : ""}
-          </div>
-        </div>
-        <div style={{ overflow: "auto" }}>
-          {notes.length === 0 && <div style={{ padding: 12, color: "#666" }}>No notes for <b>{spot.name}</b>.</div>}
-          {notes.map(n => (
-            <div
-              key={n.id}
-              onClick={() => setActiveId(n.id)}
-              style={{
-                padding: "10px 12px", borderBottom: "1px solid #f5f5f5",
-                background: n.id === activeId ? "#f2f6ff" : "transparent", cursor: "pointer",
-                display: "grid", gridTemplateColumns: "1fr auto", gap: 8
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {n.title}
-                </div>
-                <div style={{ fontSize: 12, color: "#666", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {n.preview || "…"}
-                </div>
-              </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); if (confirm("Delete this note?")) deleteNote(n.id); }}
-                style={{ border: "none", background: "transparent", color: "#c33", cursor: "pointer" }}
-                title="Delete"
-              >🗑</button>
-            </div>
-          ))}
-        </div>
-      </aside>
+    <div style={{ padding: "1rem", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ marginBottom: 8 }}>
+        <Link to="/spots">← Back to Projects</Link>
+      </div>
 
-      <section style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{ padding: "10px 12px", borderBottom: "1px solid #eee", color: "#666" }}>
-          {active ? <><b>{active.title}</b> — last edited {new Date(active.updatedAt).toLocaleString()}</> : "No note selected"}
+      <h2 style={{ margin: 0 }}>{spot.name}</h2>
+      <div style={{ display: "flex", gap: 24, alignItems: "flex-start", marginTop: 12 }}>
+        <div
+          style={{
+            width: 220,
+            height: 150,
+            border: "1px dashed #bbb",
+            borderRadius: 6,
+            display: "grid",
+            placeItems: "center",
+            overflow: "hidden",
+            background: "#fafafa",
+          }}
+        >
+          {spot.thumbnail_url ? (
+            <img
+              src={spot.thumbnail_url}
+              alt={`${spot.name} thumbnail`}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <span style={{ opacity: 0.6 }}>No image</span>
+          )}
         </div>
-        {active ? (
-          <textarea
-            value={text}
-            onChange={e => setText(e.target.value)}
-            placeholder={`Notes for ${spot.name}…`}
-            style={{ flex: 1, border: "none", outline: "none", resize: "none", padding: 12, fontSize: 16, lineHeight: 1.5 }}
-          />
-        ) : (
-          <div style={{ padding: 24, color: "#666" }}>Choose a note or create a new one.</div>
-        )}
-      </section>
+
+        <div style={{ flex: 1 }}>
+          <div><b>Spot ID:</b> {spot.id}</div>
+          <div><b>Description:</b> {spot.description || "No description"}</div>
+        </div>
+      </div>
+
+      <h3 style={{ marginTop: 24 }}>Notes</h3>
+
+      <form onSubmit={createNote} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <input
+          value={newBody}
+          onChange={(e) => setNewBody(e.target.value)}
+          placeholder="Write a note…"
+          style={{ flex: 1, height: 34, padding: "6px 8px", border: "1px solid #bbb", borderRadius: 4 }}
+        />
+        <button type="submit" disabled={!canSave}>Add</button>
+      </form>
+
+      {notes.length === 0 ? (
+        <div style={{ opacity: 0.7 }}>No notes yet.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+          {notes.map((n) => (
+            <li
+              key={n.id}
+              style={{ padding: "8px 10px", border: "1px solid #ddd", borderRadius: 6, background: "white" }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ whiteSpace: "pre-wrap" }}>{n.body}</div>
+                <button onClick={() => removeNote(n.id)} aria-label="Delete note">✕</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

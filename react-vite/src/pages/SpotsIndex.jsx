@@ -1,106 +1,132 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import "./SpotsIndex.css";
 
 const api = async (path, opts = {}) => {
   const r = await fetch(`/api/spots${path}`, {
-    headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
     ...opts,
   });
-  if (!r.ok) throw new Error(`${r.status}`);
-  return r.json();
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`spots api ${path} failed (${r.status}) ${t}`);
+  }
+  return r.headers.get("content-type")?.includes("application/json")
+    ? r.json()
+    : r.text();
 };
 
 export default function SpotsIndex() {
   const [spots, setSpots] = useState([]);
   const [name, setName] = useState("");
-  const [thumb, setThumb] = useState("");
 
   const load = () => api("").then((d) => setSpots(d.spots || []));
-
-  // ✅ Important: don't pass `load` directly; wrap it so the effect returns nothing.
   useEffect(() => {
     load();
   }, []);
 
   const create = async (e) => {
     e.preventDefault();
-    const body = JSON.stringify({
-      name: name.trim(),
-      thumbnail_url: thumb.trim() || null,
+    const n = name.trim();
+    if (!n) return;
+    await api("", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: n }),
     });
-    const s = await api("", { method: "POST", body });
-    setSpots((prev) => [s, ...prev]);
     setName("");
-    setThumb("");
+    load();
   };
 
-  const prettyDate = (iso) => {
-    if (!iso) return "—";
-    const d = new Date(iso);
-    return isNaN(d) ? "—" : d.toLocaleString();
+  const del = async (id) => {
+    if (!confirm("Delete this project?")) return;
+    await api(`/${id}`, { method: "DELETE" });
+    load();
+  };
+
+  const uploadThumb = async (id, file) => {
+    const fd = new FormData();
+    fd.append("image", file);
+    await fetch(`/api/spots/${id}/thumbnail`, {
+      method: "POST",
+      body: fd,
+      credentials: "same-origin",
+    }).then((r) => {
+      if (!r.ok) throw new Error("upload failed");
+    });
+    load();
   };
 
   const sorted = useMemo(
     () =>
       [...spots].sort(
-        (a, b) =>
-          new Date(b.updated_at || 0).getTime() -
-          new Date(a.updated_at || 0).getTime()
+        (a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0)
       ),
     [spots]
   );
 
   return (
-    <div className="spots-page">
-      <h1>Spots</h1>
+    <div className="spots-wrap">
+      <div className="spots-header">
+        <h2>Projects</h2>
+        <form onSubmit={create} className="create-form">
+          <input
+            placeholder="New project name…"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <button>Create</button>
+        </form>
+      </div>
 
-      <form className="new-spot-form" onSubmit={create}>
-        <input
-          className="text"
-          placeholder="New spot name…"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <input
-          className="text"
-          placeholder="Thumbnail image URL (optional)"
-          value={thumb}
-          onChange={(e) => setThumb(e.target.value)}
-        />
-        <button className="btn" type="submit" disabled={!name.trim()}>
-          Create
-        </button>
-      </form>
-
-      <div className="spots-grid">
+      <div className="grid">
         {sorted.map((s) => (
-          <Link key={s.id} to={`/spots/${s.id}/abacus`} className="spot-card">
-            <div className="thumb-wrap">
+          <article key={s.id} className="card">
+            <div className="thumb">
               {s.thumbnail_url ? (
-                <img
-                  src={s.thumbnail_url}
-                  alt={`${s.name} thumbnail`}
-                  onError={(e) => {
-                    e.currentTarget.src =
-                      "https://via.placeholder.com/400x240?text=No+Image";
-                  }}
-                />
+                <img src={s.thumbnail_url} alt={s.name} />
               ) : (
-                <div className="thumb-fallback">
-                  {s.name[0]?.toUpperCase() || "•"}
-                </div>
+                <label className="uploader">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) uploadThumb(s.id, f);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  Add Image
+                </label>
               )}
             </div>
+
             <div className="card-body">
-              <div className="spot-name">{s.name}</div>
-              <div className="spot-updated">
-                Updated {prettyDate(s.updated_at)}
+              <div className="title-row">
+                <h3 className="title">{s.name}</h3>
+                <button
+                  className="delete"
+                  aria-label="Delete project"
+                  onClick={() => del(s.id)}
+                >
+                  ×
+                </button>
+              </div>
+
+              <p className="desc">{s.description || "No description"}</p>
+
+              <div className="actions">
+                <Link to={`/spots/${s.id}/notes`}>Open</Link>
+                <Link to={`/spots/${s.id}/abacus`}>Abacus</Link>
+              </div>
+
+              <div className="meta">
+                {s.updated_at
+                  ? `Updated ${new Date(s.updated_at).toLocaleString()}`
+                  : "Updated Unknown"}
               </div>
             </div>
-          </Link>
+          </article>
         ))}
       </div>
     </div>

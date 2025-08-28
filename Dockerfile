@@ -19,4 +19,4 @@ RUN pip install psycopg2
 
 COPY . .
 
-CMD flask db stamp head && flask seed all && gunicorn app:app
+CMD python -c "from app import app; from app.models import db; app.app_context().push(); db.drop_all(); db.create_all()" && flask seed all && gunicorn app:app

@@ -17,9 +17,11 @@ depends_on = None
 
 
 def upgrade():
-    # Drop entire database schema and recreate
-    op.execute("DROP SCHEMA public CASCADE")
-    op.execute("CREATE SCHEMA public")
+    # Drop existing tables safely
+    op.execute("DROP TABLE IF EXISTS spot_notes CASCADE")
+    op.execute("DROP TABLE IF EXISTS spots CASCADE") 
+    op.execute("DROP TABLE IF EXISTS projects CASCADE")
+    op.execute("DROP TABLE IF EXISTS users CASCADE")
     
     # Create users table
     op.create_table('users',

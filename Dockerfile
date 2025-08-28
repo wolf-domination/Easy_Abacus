@@ -19,4 +19,4 @@ RUN pip install psycopg2
 
 COPY . .
 
-CMD gunicorn app:app
+CMD flask db upgrade && flask seed all && gunicorn app:app
